@@ -8,7 +8,7 @@ cask "dockersweep" do
   homepage "https://github.com/marcel-breuer/docker-sweep"
 
   depends_on arch: :arm64
-  depends_on macos: ">= :ventura"
+  depends_on macos: :ventura
 
   app "DockerSweep.app"
 
