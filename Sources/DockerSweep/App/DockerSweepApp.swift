@@ -8,15 +8,20 @@ struct DockerSweepApp: App {
 
   var body: some Scene {
     MenuBarExtra {
-      DashboardView()
-        .environmentObject(state)
-        .frame(width: 440, height: 610)
-        .task { state.start() }
+      MenuBarMenuView()
     } label: {
       MenuBarLabel(state: state)
         .task { state.start() }
     }
-    .menuBarExtraStyle(.window)
+    .menuBarExtraStyle(.menu)
+
+    Window("DockerSweep", id: "dashboard") {
+      DashboardView()
+        .environmentObject(state)
+        .frame(width: 440, height: 610)
+        .task { state.start() }
+    }
+    .defaultSize(width: 440, height: 610)
 
     Window("Cleanup History", id: "cleanup-history") {
       HistoryView()
@@ -35,6 +40,20 @@ struct DockerSweepApp: App {
         .environmentObject(state)
     }
     .defaultSize(width: 500, height: 650)
+  }
+
+}
+
+private struct MenuBarMenuView: View {
+  @Environment(\.openWindow) private var openWindow
+
+  var body: some View {
+    Button("Open DockerSweep") {
+      openWindow(id: "dashboard")
+    }
+    Button("Quit DockerSweep") {
+      NSApp.terminate(nil)
+    }
   }
 }
 
