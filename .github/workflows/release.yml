@@ -20,8 +20,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --title "DockerSweep ${GITHUB_REF_NAME#v}" \
+              --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" \
             "dist/DockerSweep-${GITHUB_REF_NAME#v}-arm64.zip" \
             "dist/DockerSweep-${GITHUB_REF_NAME#v}-arm64.zip.sha256" \
-            --title "DockerSweep ${GITHUB_REF_NAME#v}" \
-            --generate-notes
+            --clobber
