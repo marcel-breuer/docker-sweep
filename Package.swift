@@ -17,6 +17,7 @@ let package = Package(
     .executableTarget(
       name: "DockerSweep",
       dependencies: ["DockerSweepCore"],
+      resources: [.copy("Resources")],
       swiftSettings: [.enableUpcomingFeature("StrictConcurrency")]
     ),
     .testTarget(

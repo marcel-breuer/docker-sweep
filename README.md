@@ -81,7 +81,7 @@ This is a native macOS project, so the Apple Swift/Xcode toolchain is required. 
 ```sh
 swift build
 swift test
-./scripts/package-release.sh 0.1.0
+./scripts/package-release.sh 0.1.1
 ```
 
 The release script creates:

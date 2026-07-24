@@ -82,7 +82,7 @@ struct SettingsView: View {
       }
 
       Section("About") {
-        LabeledContent("Version", value: "0.1.0")
+        LabeledContent("Version", value: "0.1.1")
         Link("Project website", destination: URL(string: "https://github.com/marcel-breuer/docker-sweep")!)
         Text("DockerSweep is open-source software under the MIT License.")
           .font(.caption).foregroundStyle(.secondary)
