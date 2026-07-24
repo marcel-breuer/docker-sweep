@@ -1,39 +1,119 @@
 name: Release
 
 on:
-  push:
-    tags: ["v*.*.*"]
   workflow_dispatch:
     inputs:
-      tag:
-        description: "Existing release tag to package and upload"
+      version:
+        description: "Semantic version to tag and release, without v prefix"
         required: true
         type: string
+  push:
+    tags: ["v*.*.*"]
 
 permissions:
   contents: write
 
 jobs:
-  package:
+  release:
     runs-on: macos-15
-    env:
-      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    concurrency:
+      group: release
+      cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-      - name: Run tests
-        run: swift test
-      - name: Package release
-        run: ./scripts/package-release.sh "${RELEASE_TAG#v}"
-      - name: Publish GitHub release
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8
+        with:
+          fetch-depth: 0
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Resolve release version
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release create "$RELEASE_TAG" \
-              --title "DockerSweep ${RELEASE_TAG#v}" \
-              --generate-notes
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ inputs.version }}"
+            TAG="v${VERSION}"
+            if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+              git config user.name "github-actions[bot]"
+              git config user.email "github-actions[bot]@users.noreply.github.com"
+              git tag -a "$TAG" -m "Release $TAG"
+              git push origin "$TAG"
+            fi
+          else
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
           fi
-          gh release upload "$RELEASE_TAG" \
-            "dist/DockerSweep-${RELEASE_TAG#v}-arm64.zip" \
-            "dist/DockerSweep-${RELEASE_TAG#v}-arm64.zip.sha256" \
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must use MAJOR.MINOR.PATCH format: $VERSION" >&2
+            exit 1
+          fi
+
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Run tests
+        run: swift test
+
+      - name: Package ARM64 app
+        run: ./scripts/package-release.sh "$VERSION"
+
+      - name: Resolve Homebrew cask checksum
+        id: cask
+        run: |
+          SHA="$(awk '{print $1}' "dist/DockerSweep-${VERSION}-arm64.zip.sha256")"
+          if [[ ! "$SHA" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "Invalid SHA-256 checksum: $SHA" >&2
+            exit 1
+          fi
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "DockerSweep ${VERSION}" --generate-notes
+          fi
+          gh release upload "$TAG" \
+            "dist/DockerSweep-${VERSION}-arm64.zip" \
+            "dist/DockerSweep-${VERSION}-arm64.zip.sha256" \
             --clobber
+
+      - name: Check Homebrew tap configuration
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          if [[ -n "$HOMEBREW_TAP_TOKEN" ]]; then
+            echo "HAS_TAP_TOKEN=true" >> "$GITHUB_ENV"
+          else
+            echo "HAS_TAP_TOKEN=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Update Homebrew tap
+        if: env.HAS_TAP_TOKEN == 'true'
+        env:
+          HOMEBREW_TAP_REPOSITORY: ${{ vars.HOMEBREW_TAP_REPOSITORY || 'marcel-breuer/homebrew-tap' }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          SHA: ${{ steps.cask.outputs.sha }}
+        run: |
+          TAP_DIR="$RUNNER_TEMP/homebrew-tap"
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/${HOMEBREW_TAP_REPOSITORY}.git" "$TAP_DIR"
+          mkdir -p "$TAP_DIR/Casks"
+          cp Casks/dockersweep.rb "$TAP_DIR/Casks/dockersweep.rb"
+          sed -i '' -E "s/^  version \".*\"$/  version \"${VERSION}\"/; s/^  sha256 \"[0-9a-f]+\"$/  sha256 \"${SHA}\"/" "$TAP_DIR/Casks/dockersweep.rb"
+
+          git -C "$TAP_DIR" config user.name "github-actions[bot]"
+          git -C "$TAP_DIR" config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C "$TAP_DIR" add Casks/dockersweep.rb
+          if git -C "$TAP_DIR" diff --cached --quiet; then
+            echo "Homebrew tap already has DockerSweep ${VERSION}."
+            exit 0
+          fi
+          git -C "$TAP_DIR" commit -m "chore(cask): update dockersweep to ${VERSION}"
+          git -C "$TAP_DIR" push origin HEAD
+
+      - name: Report missing tap secret
+        if: env.HAS_TAP_TOKEN == 'false'
+        run: echo "HOMEBREW_TAP_TOKEN is not configured; GitHub release published without updating the Homebrew tap."
