@@ -29,3 +29,7 @@ Integration testing with Docker should use disposable test resources and must ve
 ## Pull requests
 
 Use a focused branch and a Conventional Commit message. Describe the user impact, safety implications, tests, and any macOS or Docker version limitations.
+
+## Releases
+
+Every push to `main` creates the next patch release automatically from the latest semantic version tag. Use the **Release** workflow's manual dispatch when a minor or major version should be released, entering the full version without the `v` prefix. Pushing a semantic version tag directly remains supported.
