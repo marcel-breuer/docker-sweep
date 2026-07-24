@@ -13,6 +13,20 @@ struct DashboardView: View {
   }
 
   var body: some View {
+    Group {
+      if state.showOnboarding {
+        OnboardingView()
+      } else {
+        dashboardContent
+      }
+    }
+    .background(.regularMaterial)
+    .sheet(isPresented: $showingHistory) { HistoryView().environmentObject(state) }
+    .sheet(isPresented: $showingSettings) { SettingsView().environmentObject(state).padding() }
+    .sheet(isPresented: $state.showCleanupPreview) { CleanupPreviewView().environmentObject(state) }
+  }
+
+  private var dashboardContent: some View {
     VStack(spacing: 0) {
       header
       Divider()
@@ -27,11 +41,6 @@ struct DashboardView: View {
         .padding(14)
       }
     }
-    .background(.regularMaterial)
-    .sheet(isPresented: $showingHistory) { HistoryView().environmentObject(state) }
-    .sheet(isPresented: $showingSettings) { SettingsView().environmentObject(state).padding() }
-    .sheet(isPresented: $state.showOnboarding) { OnboardingView().environmentObject(state) }
-    .sheet(isPresented: $state.showCleanupPreview) { CleanupPreviewView().environmentObject(state) }
   }
 
   private var header: some View {
