@@ -19,7 +19,6 @@ final class AppState: ObservableObject {
   @Published var nextScanAt: Date?
   @Published var lastError: String?
   @Published var statusMessage = "Ready to scan"
-  @Published var showCleanupPreview = false
   @Published var showOnboarding = false
 
   private var hasStarted = false

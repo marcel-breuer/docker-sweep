@@ -18,10 +18,23 @@ struct DockerSweepApp: App {
     }
     .menuBarExtraStyle(.window)
 
-    Settings {
+    Window("Cleanup History", id: "cleanup-history") {
+      HistoryView()
+        .environmentObject(state)
+    }
+    .defaultSize(width: 440, height: 420)
+
+    Window("Cleanup Preview", id: "cleanup-preview") {
+      CleanupPreviewView()
+        .environmentObject(state)
+    }
+    .defaultSize(width: 420, height: 420)
+
+    Window("DockerSweep Settings", id: "settings") {
       SettingsView()
         .environmentObject(state)
     }
+    .defaultSize(width: 500, height: 650)
   }
 }
 

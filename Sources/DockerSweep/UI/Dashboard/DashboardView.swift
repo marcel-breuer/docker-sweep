@@ -4,8 +4,7 @@ import DockerSweepCore
 
 struct DashboardView: View {
   @EnvironmentObject private var state: AppState
-  @State private var showingHistory = false
-  @State private var showingSettings = false
+  @Environment(\.openWindow) private var openWindow
 
   private var usageRatio: Double {
     guard let usage = state.diskUsage, state.settings.cleanupThresholdBytes > 0 else { return 0 }
@@ -21,9 +20,6 @@ struct DashboardView: View {
       }
     }
     .background(.regularMaterial)
-    .sheet(isPresented: $showingHistory) { HistoryView().environmentObject(state) }
-    .sheet(isPresented: $showingSettings) { SettingsView().environmentObject(state).padding() }
-    .sheet(isPresented: $state.showCleanupPreview) { CleanupPreviewView().environmentObject(state) }
   }
 
   private var dashboardContent: some View {
@@ -129,7 +125,7 @@ struct DashboardView: View {
       Button { Task { await state.scan() } } label: { Label("Scan now", systemImage: "magnifyingglass") }
         .buttonStyle(.bordered)
         .disabled(state.isScanning || state.isCleaning)
-      Button { state.showCleanupPreview = true } label: { Label("Clean up", systemImage: "sparkles") }
+      Button { openWindow(id: "cleanup-preview") } label: { Label("Clean up", systemImage: "sparkles") }
         .buttonStyle(.borderedProminent)
         .disabled(state.isScanning || state.isCleaning || state.settings.selectedResourceTypes.isEmpty)
       Spacer()
@@ -138,9 +134,9 @@ struct DashboardView: View {
 
   private var footerLinks: some View {
     HStack {
-      Button("History", systemImage: "clock.arrow.circlepath") { showingHistory = true }.buttonStyle(.borderless)
+      Button("History", systemImage: "clock.arrow.circlepath") { openWindow(id: "cleanup-history") }.buttonStyle(.borderless)
       Spacer()
-      Button("Settings", systemImage: "gearshape") { showingSettings = true }.buttonStyle(.borderless)
+      Button("Settings", systemImage: "gearshape") { openWindow(id: "settings") }.buttonStyle(.borderless)
       Button("Open Docker Desktop", systemImage: "arrow.up.forward.app") { NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: "/Applications/Docker.app"), configuration: NSWorkspace.OpenConfiguration()) }.buttonStyle(.borderless)
     }
     .font(.caption)
