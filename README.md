@@ -66,7 +66,8 @@ The default cleanup policy is:
 - Networks: enabled, seven-day minimum age
 - Anonymous and named volumes: disabled
 - Automatic cleanup: disabled
-- Login item and automatic scans: enabled
+- Login item: disabled until enabled in Settings
+- Automatic scans: enabled
 
 Volumes can contain databases, uploads, and other persistent project data. DockerSweep asks for explicit confirmation before volume cleanup and excludes resources carrying `docker-sweep.keep=true` or `keep` labels. No cleanup can be undone through DockerSweep.
 

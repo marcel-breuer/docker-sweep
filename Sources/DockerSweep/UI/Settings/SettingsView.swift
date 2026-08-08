@@ -26,8 +26,10 @@ struct SettingsView: View {
   var body: some View {
     Form {
       Section("General") {
-        Toggle("Launch DockerSweep at login", isOn: $state.settings.launchAtLogin)
-          .onChange(of: state.settings.launchAtLogin) { enabled in updateLoginItem(enabled) }
+        Toggle("Launch DockerSweep at login", isOn: Binding(
+          get: { state.settings.launchAtLogin },
+          set: { enabled in updateLoginItem(enabled) }
+        ))
         Toggle("Enable automatic scans", isOn: $state.settings.automaticScanningEnabled)
         Toggle("Enable notifications", isOn: $state.settings.notificationsEnabled)
         LabeledContent("Docker CLI") {
@@ -115,9 +117,10 @@ struct SettingsView: View {
   private func updateLoginItem(_ enabled: Bool) {
     do {
       try LoginItemController.setEnabled(enabled)
+      state.settings.launchAtLogin = LoginItemController.isEnabled
       state.saveSettings()
     } catch {
-      state.settings.launchAtLogin = false
+      state.settings.launchAtLogin = LoginItemController.isEnabled
       loginError = error.localizedDescription
       showLoginError = true
     }

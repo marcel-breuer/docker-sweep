@@ -42,6 +42,7 @@ final class CoreTests: XCTestCase {
 
   func testDefaultSettingsProtectVolumesAndDisableAutomaticCleanup() {
     let settings = AppSettings()
+    XCTAssertFalse(settings.launchAtLogin)
     XCTAssertFalse(settings.cleanupAnonymousVolumes)
     XCTAssertFalse(settings.cleanupNamedVolumes)
     XCTAssertFalse(settings.automaticCleanupEnabled)

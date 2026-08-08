@@ -89,7 +89,7 @@ public struct DockerDiskUsage: Codable, Sendable, Equatable {
 }
 
 public struct AppSettings: Codable, Sendable, Equatable {
-  public var launchAtLogin = true
+  public var launchAtLogin = false
   public var automaticScanningEnabled = true
   public var automaticCleanupEnabled = false
   public var scanInterval: TimeInterval = 6 * 60 * 60
