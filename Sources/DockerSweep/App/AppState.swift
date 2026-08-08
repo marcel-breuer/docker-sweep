@@ -39,6 +39,7 @@ final class AppState: ObservableObject {
     Task { [weak self] in
       guard let self else { return }
       settings = await settingsStore.load()
+      settings.launchAtLogin = LoginItemController.isEnabled
       await dockerClient.setCustomPath(settings.customDockerPath)
       history = await historyStore.load()
       showOnboarding = !settings.onboardingCompleted
