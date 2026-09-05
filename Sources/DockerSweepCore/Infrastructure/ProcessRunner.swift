@@ -12,7 +12,6 @@ public final class LocalProcessRunner: ProcessRunning, @unchecked Sendable {
       let process = Process()
       let outputPipe = Pipe()
       let errorPipe = Pipe()
-      let startedAt = Date()
       let completion = ProcessCompletion(continuation: continuation)
 
       process.executableURL = executableURL
@@ -26,8 +25,7 @@ public final class LocalProcessRunner: ProcessRunning, @unchecked Sendable {
         let result = ProcessResult(
           exitCode: process.terminationStatus,
           standardOutput: Self.safeString(output),
-          standardError: Self.safeString(error),
-          duration: Date().timeIntervalSince(startedAt))
+          standardError: Self.safeString(error))
         completion.success(result)
       }
 

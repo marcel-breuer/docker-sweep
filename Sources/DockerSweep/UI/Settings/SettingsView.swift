@@ -31,7 +31,6 @@ struct SettingsView: View {
           set: { enabled in updateLoginItem(enabled) }
         ))
         Toggle("Enable automatic scans", isOn: $state.settings.automaticScanningEnabled)
-        Toggle("Enable notifications", isOn: $state.settings.notificationsEnabled)
         LabeledContent("Docker CLI") {
           Text(state.availabilityPath).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(1)
         }
