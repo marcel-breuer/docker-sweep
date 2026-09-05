@@ -104,7 +104,6 @@ public struct AppSettings: Codable, Sendable, Equatable {
   public var cleanupAnonymousVolumes = false
   public var cleanupNamedVolumes = false
   public var excludedLabels = ["docker-sweep.keep=true", "keep"]
-  public var notificationsEnabled = true
   public var customDockerPath: String?
   public var onboardingCompleted = false
   public var volumeWarningConfirmed = false
@@ -144,13 +143,11 @@ public struct ProcessResult: Sendable, Equatable {
   public let exitCode: Int32
   public let standardOutput: String
   public let standardError: String
-  public let duration: TimeInterval
 
-  public init(exitCode: Int32, standardOutput: String, standardError: String, duration: TimeInterval) {
+  public init(exitCode: Int32, standardOutput: String, standardError: String) {
     self.exitCode = exitCode
     self.standardOutput = standardOutput
     self.standardError = standardError
-    self.duration = duration
   }
 }
 
@@ -213,7 +210,6 @@ public struct CleanupRun: Codable, Identifiable, Sendable, Equatable {
 public enum DockerSweepError: LocalizedError, Sendable, Equatable {
   case dockerExecutableNotFound
   case dockerEngineUnavailable
-  case unsupportedDockerVersion
   case commandTimedOut
   case commandFailed(exitCode: Int32, message: String)
   case invalidOutput
@@ -224,7 +220,6 @@ public enum DockerSweepError: LocalizedError, Sendable, Equatable {
     switch self {
     case .dockerExecutableNotFound: "The Docker CLI could not be found."
     case .dockerEngineUnavailable: "Docker Desktop is not running or the Docker Engine is unavailable."
-    case .unsupportedDockerVersion: "This Docker version does not provide the required disk usage output."
     case .commandTimedOut: "The Docker command timed out."
     case let .commandFailed(_, message): message
     case .invalidOutput: "Docker returned an output format DockerSweep could not read."

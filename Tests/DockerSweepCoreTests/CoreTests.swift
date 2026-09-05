@@ -49,6 +49,12 @@ final class CoreTests: XCTestCase {
     XCTAssertTrue(settings.selectedResourceTypes.contains(.buildCache))
   }
 
+  func testSettingsIgnoreRemovedNotificationSetting() throws {
+    let data = #"{"notificationsEnabled":false,"cleanupBuildCache":true}"#.data(using: .utf8)!
+    let settings = try JSONDecoder().decode(AppSettings.self, from: data)
+    XCTAssertTrue(settings.cleanupBuildCache)
+  }
+
   func testThresholdAndCooldownPolicy() {
     let usage = DockerDiskUsage(images: ResourceDiskUsage(sizeBytes: 31_000_000_000))
     var settings = AppSettings()
