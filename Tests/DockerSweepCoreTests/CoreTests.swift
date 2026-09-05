@@ -50,7 +50,9 @@ final class CoreTests: XCTestCase {
   }
 
   func testSettingsIgnoreRemovedNotificationSetting() throws {
-    let data = #"{"notificationsEnabled":false,"cleanupBuildCache":true}"#.data(using: .utf8)!
+    var object = try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(AppSettings())) as? [String: Any])
+    object["notificationsEnabled"] = false
+    let data = try JSONSerialization.data(withJSONObject: object)
     let settings = try JSONDecoder().decode(AppSettings.self, from: data)
     XCTAssertTrue(settings.cleanupBuildCache)
   }
