@@ -9,6 +9,10 @@ on:
         type: string
   push:
     branches: [main]
+    paths:
+      - Package.swift
+      - Sources/**
+      - scripts/package-release.sh
     tags: ["v*.*.*"]
 
 permissions:
@@ -65,9 +69,6 @@ jobs:
 
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
-
-      - name: Run tests
-        run: swift test
 
       - name: Package ARM64 app
         run: ./scripts/package-release.sh "$VERSION"

@@ -32,4 +32,4 @@ Use a focused branch and a Conventional Commit message. Describe the user impact
 
 ## Releases
 
-Every push to `main` creates the next patch release automatically from the latest semantic version tag. Use the **Release** workflow's manual dispatch when a minor or major version should be released, entering the full version without the `v` prefix. Pushing a semantic version tag directly remains supported.
+Every push to `main` that changes the shipped app or packaging creates the next patch release automatically from the latest semantic version tag. Documentation-only and test-only changes do not publish a release. Use the **Release** workflow's manual dispatch when a minor or major version should be released, entering the full version without the `v` prefix. Pushing a semantic version tag directly remains supported.
