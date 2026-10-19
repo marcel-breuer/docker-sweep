@@ -5,6 +5,9 @@ final class CoreTests: XCTestCase {
   func testByteCountParserSupportsDockerUnits() {
     XCTAssertEqual(DockerSystemDFParser.parseByteCount("1.5GB"), 1_500_000_000)
     XCTAssertEqual(DockerSystemDFParser.parseByteCount("512MiB"), 536_870_912)
+    XCTAssertEqual(DockerSystemDFParser.parseByteCount("1GB (50%)"), 1_000_000_000)
+    XCTAssertNil(DockerSystemDFParser.parseByteCount("1GBjunk"))
+    XCTAssertNil(DockerSystemDFParser.parseByteCount("999999999999999999999999999999TB"))
   }
 
   func testParsesDockerSystemDFJSONLines() throws {
@@ -33,11 +36,88 @@ final class CoreTests: XCTestCase {
     XCTAssertEqual(usage.buildCache.reclaimableBytes, 1_000_000_000)
   }
 
-  func testCleanupCommandsAreSeparateAndVolumeSafe() {
+  func testMalformedDockerOutputIsRejectedInsteadOfPartiallyParsed() {
+    let output = #"""
+    {"Type":"Images","TotalCount":"4","Active":"1","Size":"2GB","Reclaimable":"1GB"}
+    not-json
+    """#
+    XCTAssertThrowsError(try DockerSystemDFParser.parse(output)) { error in
+      XCTAssertEqual(error as? DockerSweepError, .invalidOutput)
+    }
+  }
+
+  func testCleanupCommandsAreSeparateAndVolumeSafe() throws {
     let request = CleanupRequest(resourceTypes: [.containers, .images, .namedVolumes], minimumAge: 7 * 24 * 60 * 60, cleanupAllUnusedImages: false, excludedLabels: ["docker-sweep.keep=true"], trigger: .manual)
-    XCTAssertEqual(CleanupCommandBuilder.arguments(for: .containers, request: request), ["container", "prune", "--force", "--filter", "until=168h"])
-    XCTAssertEqual(CleanupCommandBuilder.arguments(for: .images, request: request), ["image", "prune", "--force", "--filter", "until=168h"])
-    XCTAssertEqual(CleanupCommandBuilder.arguments(for: .namedVolumes, request: request), ["volume", "prune", "--all", "--force", "--filter", "until=168h", "--filter", "label!=docker-sweep.keep=true"])
+    XCTAssertEqual(try CleanupCommandBuilder.arguments(for: .containers, request: request), ["container", "prune", "--force", "--filter", "until=168h"])
+    XCTAssertEqual(try CleanupCommandBuilder.arguments(for: .images, request: request), ["image", "prune", "--force", "--filter", "until=168h"])
+    XCTAssertEqual(try CleanupCommandBuilder.arguments(for: .namedVolumes, request: request), ["volume", "prune", "--all", "--force", "--filter", "until=168h", "--filter", "label!=docker-sweep.keep=true"])
+  }
+
+  func testPreviewAndExecutionShareOneConfirmedPlanAndInventorySnapshot() throws {
+    let inventory = DockerDiskUsage(images: ResourceDiskUsage(totalCount: 4, activeCount: 1, sizeBytes: 2_000_000_000, reclaimableBytes: 1_000_000_000))
+    let request = CleanupRequest(resourceTypes: [.images, .namedVolumes], minimumAge: 7 * 24 * 60 * 60, cleanupAllUnusedImages: false, excludedLabels: ["docker-sweep.keep=true"], trigger: .manual)
+
+    let previewPlan = try CleanupPlanner.makePlan(request: request, inventory: inventory)
+    let authorizedPlan = previewPlan.authorizeExecution()
+
+    XCTAssertEqual(previewPlan.inventorySnapshot, inventory)
+    XCTAssertEqual(previewPlan.actions.map(\.resourceType), [.images, .namedVolumes])
+    XCTAssertTrue(previewPlan.requiresExplicitConfirmation)
+    XCTAssertEqual(previewPlan.actions[0].arguments, ["image", "prune", "--force", "--filter", "until=168h"])
+    XCTAssertEqual(previewPlan.actions[0].scopeDescription, "Dangling images · Older than 168 hours (Docker filter: until=168h)")
+    XCTAssertEqual(previewPlan.actions[1].scopeDescription, "Unused named volumes · Older than 168 hours (Docker filter: until=168h) · Excluding labels: docker-sweep.keep=true")
+    XCTAssertGreaterThanOrEqual(previewPlan.preparedInMilliseconds, 0)
+    XCTAssertEqual(authorizedPlan.plan, previewPlan)
+    XCTAssertEqual(authorizedPlan.plan.actions, previewPlan.actions)
+  }
+
+  func testUnsafeVolumeExclusionLabelFailsClosed() {
+    let request = CleanupRequest(resourceTypes: [.namedVolumes], minimumAge: 7 * 24 * 60 * 60, cleanupAllUnusedImages: false, excludedLabels: ["docker-sweep.keep=true", "bad label"], trigger: .manual)
+
+    XCTAssertThrowsError(try CleanupPlanner.makePlan(request: request)) { error in
+      XCTAssertEqual(error as? DockerSweepError, .invalidConfiguration)
+    }
+  }
+
+  func testDockerOutputSanitizerRedactsCredentialsAndBoundsErrorText() {
+    let sanitized = DockerOutputSanitizer.sanitize("https://user:password@example.com Authorization: Bearer abc.def token=secret")
+    XCTAssertEqual(sanitized, "https://[REDACTED]@example.com Authorization: Bearer [REDACTED] token=[REDACTED]")
+    XCTAssertEqual(DockerOutputSanitizer.sanitize(String(repeating: "x", count: 600)).count, 500)
+  }
+
+  func testProcessOutputCaptureHasAHardLimit() {
+    let output = BoundedOutputCapture(limit: 16)
+    output.append(Data(repeating: 65, count: 32))
+    output.append(Data("later".utf8))
+    XCTAssertEqual(output.data, Data(repeating: 65, count: 16))
+  }
+
+  func testLocalProcessRunnerTimesOutAndTerminatesAProcess() async {
+    let runner = LocalProcessRunner()
+    do {
+      _ = try await runner.run(executableURL: URL(fileURLWithPath: "/bin/sleep"), arguments: ["5"], environment: [:], timeout: 0.05)
+      XCTFail("Expected the process to time out")
+    } catch let error as DockerSweepError {
+      XCTAssertEqual(error, .commandTimedOut)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  func testLocalProcessRunnerPropagatesTaskCancellation() async throws {
+    let runner = LocalProcessRunner()
+    let task = Task {
+      try await runner.run(executableURL: URL(fileURLWithPath: "/bin/sleep"), arguments: ["5"], environment: [:], timeout: 30)
+    }
+    try await Task.sleep(for: .milliseconds(100))
+    task.cancel()
+
+    do {
+      _ = try await task.value
+      XCTFail("Expected the process task to be cancelled")
+    } catch is CancellationError {
+      // Expected.
+    }
   }
 
   func testDefaultSettingsProtectVolumesAndDisableAutomaticCleanup() {

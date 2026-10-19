@@ -76,13 +76,22 @@ final class AppState: ObservableObject {
     }
 
     do {
+      let inventoryStartedAt = Date.now
       diskUsage = try await dockerClient.fetchDiskUsage()
+      let inventoryMilliseconds = max(0, Date.now.timeIntervalSince(inventoryStartedAt) * 1_000)
       lastScanAt = .now
       statusMessage = "Scan completed"
-      await logger.log("Scan completed: \(diskUsage?.totalSizeBytes ?? 0) bytes")
+      await logger.log("Docker inventory completed in \(Int(inventoryMilliseconds)) ms: \(diskUsage?.totalSizeBytes ?? 0) bytes")
       if allowAutomaticCleanup, let usage = diskUsage, CleanupPolicy.shouldAutomaticallyClean(settings: settings, usage: usage, lastCleanup: lastCleanup?.finishedAt) {
         isScanning = false
-        await cleanup(trigger: .threshold)
+        do {
+          let plan = try makeCleanupPlan(trigger: .threshold)
+          await cleanup(authorizedPlan: plan.authorizeExecution())
+        } catch {
+          lastError = error.localizedDescription
+          statusMessage = "Cleanup plan could not be prepared"
+          await logger.log("Cleanup plan preparation failed: \(error.localizedDescription)")
+        }
       }
     } catch {
       lastError = error.localizedDescription
@@ -91,9 +100,20 @@ final class AppState: ObservableObject {
     }
   }
 
-  func cleanup(trigger: CleanupTrigger = .manual) async {
+  func makeCleanupPlan(trigger: CleanupTrigger = .manual) throws -> CleanupPlan {
+    let request = CleanupRequest(
+      resourceTypes: settings.selectedResourceTypes,
+      minimumAge: settings.minimumResourceAge,
+      cleanupAllUnusedImages: settings.cleanupAllUnusedImages,
+      excludedLabels: settings.excludedLabels,
+      trigger: trigger)
+    return try CleanupPlanner.makePlan(request: request, inventory: diskUsage)
+  }
+
+  func cleanup(authorizedPlan: ConfirmedCleanupPlan) async {
     guard !isCleaning && !isScanning else { return }
-    let resources = settings.selectedResourceTypes
+    let plan = authorizedPlan.plan
+    let resources = plan.resourceTypes
     guard !resources.isEmpty else {
       lastError = "Select at least one resource type before cleaning."
       return
@@ -101,23 +121,25 @@ final class AppState: ObservableObject {
     isCleaning = true
     lastError = nil
     let startedAt = Date()
-    let before = diskUsage?.totalSizeBytes
+    let before = plan.inventorySnapshot?.totalSizeBytes
     statusMessage = "Cleaning Docker resources…"
-    await logger.log("Cleanup started (trigger: \(trigger.rawValue))")
+    await logger.log("Cleanup plan authorized with \(plan.actions.count) actions, prepared in \(Int(plan.preparedInMilliseconds)) ms (trigger: \(plan.request.trigger.rawValue))")
     defer { isCleaning = false }
 
-    let request = CleanupRequest(resourceTypes: resources, minimumAge: settings.minimumResourceAge, cleanupAllUnusedImages: settings.cleanupAllUnusedImages, excludedLabels: settings.excludedLabels, trigger: trigger)
     do {
-      let result = try await dockerClient.prune(request)
+      let result = try await dockerClient.prune(authorizedPlan)
       let after = try? await dockerClient.fetchDiskUsage()
       if let after { diskUsage = after; lastScanAt = .now }
       let reclaimed = max(0, (before ?? 0) - (after?.totalSizeBytes ?? before ?? 0))
       let status: CleanupStatus = result.resourceResults.allSatisfy(\.succeeded) ? .succeeded : (result.resourceResults.contains(where: \.succeeded) ? .partiallySucceeded : .failed)
-      let run = CleanupRun(id: UUID(), startedAt: startedAt, finishedAt: .now, trigger: trigger, status: status, selectedResources: resources, diskUsageBeforeBytes: before, diskUsageAfterBytes: after?.totalSizeBytes, reclaimedBytes: reclaimed > 0 ? reclaimed : result.reclaimedBytes, resourceResults: result.resourceResults, errorMessage: result.resourceResults.first(where: { !$0.succeeded })?.errorMessage)
+      let run = CleanupRun(id: UUID(), startedAt: startedAt, finishedAt: .now, trigger: plan.request.trigger, status: status, selectedResources: resources, diskUsageBeforeBytes: before, diskUsageAfterBytes: after?.totalSizeBytes, reclaimedBytes: reclaimed > 0 ? reclaimed : result.reclaimedBytes, resourceResults: result.resourceResults, errorMessage: result.resourceResults.first(where: { !$0.succeeded })?.errorMessage)
       try? await historyStore.save(run)
       history = await historyStore.load()
       statusMessage = status == .succeeded ? "Cleanup completed" : "Cleanup completed with errors"
       await logger.log("Cleanup finished: \(status.rawValue), reclaimed \(run.reclaimedBytes ?? 0) bytes")
+    } catch is CancellationError {
+      statusMessage = "Cleanup cancelled"
+      await logger.log("Cleanup cancelled")
     } catch {
       lastError = error.localizedDescription
       statusMessage = "Cleanup failed"
