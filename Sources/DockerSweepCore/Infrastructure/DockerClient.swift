@@ -189,7 +189,7 @@ public enum DockerSystemDFParser {
       rows.append(Row(type: type, totalCount: parts[0], active: parts[1], size: parts[2], reclaimable: parts[3]))
     }
     guard !rows.isEmpty else { throw DockerSweepError.invalidOutput }
-    return usage(from: rows)
+    return try usage(from: rows)
   }
 
   public static func parseByteCount(_ value: String) -> Int64? {
@@ -197,8 +197,11 @@ public enum DockerSystemDFParser {
     guard let numberRange = cleaned.range(of: "^[0-9]+(?:\\.[0-9]+)?", options: .regularExpression), let number = Double(cleaned[numberRange]) else { return nil }
     let remainder = cleaned[numberRange.upperBound...].trimmingCharacters(in: .whitespaces)
     let unit = String(remainder.prefix { $0.isLetter }).lowercased()
+    let annotation = remainder.dropFirst(unit.count).trimmingCharacters(in: .whitespaces)
+    guard annotation.isEmpty || annotation.range(of: "^\\([0-9]+(?:\\.[0-9]+)?%\\)$", options: .regularExpression) != nil else { return nil }
     let multiplier: Double
     switch unit {
+    case "", "b", "bytes": multiplier = 1
     case "kb": multiplier = 1_000
     case "kib": multiplier = 1_024
     case "mb": multiplier = 1_000_000
@@ -207,7 +210,7 @@ public enum DockerSystemDFParser {
     case "gib": multiplier = 1_073_741_824
     case "tb": multiplier = 1_000_000_000_000
     case "tib": multiplier = 1_099_511_627_776
-    default: multiplier = 1
+    default: return nil
     }
     let bytes = number * multiplier
     guard bytes.isFinite, bytes >= 0, bytes < Double(Int64.max) else { return nil }

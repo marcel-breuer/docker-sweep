@@ -5,6 +5,8 @@ final class CoreTests: XCTestCase {
   func testByteCountParserSupportsDockerUnits() {
     XCTAssertEqual(DockerSystemDFParser.parseByteCount("1.5GB"), 1_500_000_000)
     XCTAssertEqual(DockerSystemDFParser.parseByteCount("512MiB"), 536_870_912)
+    XCTAssertEqual(DockerSystemDFParser.parseByteCount("1GB (50%)"), 1_000_000_000)
+    XCTAssertNil(DockerSystemDFParser.parseByteCount("1GBjunk"))
     XCTAssertNil(DockerSystemDFParser.parseByteCount("999999999999999999999999999999TB"))
   }
 
