@@ -88,7 +88,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if ! gh release view "$TAG" >/dev/null 2>&1; then
-            gh release create "$TAG" --title "DockerSweep ${VERSION}" --generate-notes
+            gh release create "$TAG" --title "$TAG" --generate-notes
           fi
           gh release upload "$TAG" \
             "dist/DockerSweep-${VERSION}-arm64.zip" \
