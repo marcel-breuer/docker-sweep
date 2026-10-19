@@ -24,6 +24,8 @@ If packaging changes, also run:
 ./scripts/package-release.sh 0.1.0
 ```
 
+For inventory and preview performance measurements, run a scan and open the cleanup preview on a representative Docker host. The local log records inventory-query and plan-preparation durations. Opening the preview reuses the most recent inventory snapshot and does not start another Docker CLI query.
+
 Integration testing with Docker should use disposable test resources and must verify that running containers and referenced volumes remain untouched.
 
 ## Pull requests

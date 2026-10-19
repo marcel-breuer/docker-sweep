@@ -139,6 +139,49 @@ public struct CleanupRequest: Sendable, Equatable {
   }
 }
 
+public struct CleanupAction: Sendable, Equatable {
+  public let resourceType: CleanupResourceType
+  public let arguments: [String]
+  public let scopeDescription: String
+
+  init(resourceType: CleanupResourceType, arguments: [String], scopeDescription: String) {
+    self.resourceType = resourceType
+    self.arguments = arguments
+    self.scopeDescription = scopeDescription
+  }
+}
+
+public struct CleanupPlan: Sendable, Equatable {
+  public let request: CleanupRequest
+  public let actions: [CleanupAction]
+  public let inventorySnapshot: DockerDiskUsage?
+  public let preparedInMilliseconds: Double
+
+  public var resourceTypes: Set<CleanupResourceType> { Set(actions.map(\.resourceType)) }
+  public var requiresExplicitConfirmation: Bool { request.trigger == .manual && !actions.isEmpty }
+
+  init(request: CleanupRequest, actions: [CleanupAction], inventorySnapshot: DockerDiskUsage?, preparedInMilliseconds: Double) {
+    self.request = request
+    self.actions = actions
+    self.inventorySnapshot = inventorySnapshot
+    self.preparedInMilliseconds = preparedInMilliseconds
+  }
+
+  public func authorizeExecution() -> ConfirmedCleanupPlan {
+    ConfirmedCleanupPlan(plan: self)
+  }
+
+  public static func == (lhs: CleanupPlan, rhs: CleanupPlan) -> Bool {
+    lhs.request == rhs.request && lhs.actions == rhs.actions && lhs.inventorySnapshot == rhs.inventorySnapshot
+  }
+}
+
+public struct ConfirmedCleanupPlan: Sendable, Equatable {
+  public let plan: CleanupPlan
+
+  init(plan: CleanupPlan) { self.plan = plan }
+}
+
 public struct ProcessResult: Sendable, Equatable {
   public let exitCode: Int32
   public let standardOutput: String
