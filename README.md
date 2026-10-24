@@ -1,18 +1,20 @@
 # DockerSweep
 
-DockerSweep is a native, local-first macOS menu bar app for monitoring Docker storage and safely cleaning resources that Docker reports as unused.
+DockerSweep is a native, local-first macOS menu bar app for monitoring Docker and Mac storage, and safely cleaning resources that Docker reports as unused.
 
-It uses Swift, SwiftUI, Swift Concurrency, and the official Docker CLI. DockerSweep does not inspect Docker Desktop's internal virtual disk, read volume contents, stop running containers, run `docker compose down`, or send telemetry anywhere.
+It uses Swift, SwiftUI, Swift Concurrency, and the official Docker CLI. DockerSweep reads filesystem allocation metadata for Docker Desktop's disk image when it is at the documented default path; it never reads the image or volume contents, modifies the disk image, stops running containers, runs `docker compose down`, or sends telemetry anywhere.
 
 ## Features
 
 - Menu bar dashboard for Docker availability, storage use, reclaimable space, scan times, and cleanup results.
+- Host free-space monitoring, configurable low-storage notifications, and a separate opt-in low-space cleanup policy.
+- Separate reporting for Docker engine usage, Docker Desktop disk-image allocation, and disk-image capacity when available.
 - Automatic Docker CLI discovery at common Homebrew, Docker Desktop, and `PATH` locations.
 - `docker system df --format json` parsing with a table-output fallback.
 - Separate, sequential prune commands for stopped containers, networks, images, build cache, and volumes.
 - Safe defaults: automatic cleanup is off and volumes are excluded.
 - Configurable scan interval, storage threshold, cooldown, resource age, image mode, and resource categories.
-- Manual cleanup preview with a clear warning for volume operations.
+- Manual cleanup preview with individual unused-resource candidates, stale-state revalidation, and a clear warning for volume operations.
 - Local cleanup history, sanitized technical logs, atomic JSON persistence, and five-file log rotation.
 - Optional login-item registration through `SMAppService`.
 - Testable Docker and process abstractions with no shell command interpolation.
@@ -20,7 +22,7 @@ It uses Swift, SwiftUI, Swift Concurrency, and the official Docker CLI. DockerSw
 ## Requirements
 
 - macOS 13 Ventura or newer
-- Apple Silicon for the first release
+- Apple Silicon or Intel Mac (universal app)
 - Docker Desktop or a compatible local Docker Engine
 
 DockerSweep does not require administrator privileges. The app talks to Docker only through the Docker CLI in the user's environment.
@@ -42,21 +44,15 @@ brew install --cask dockersweep
 
 The cask is also kept in [`Casks/dockersweep.rb`](Casks/dockersweep.rb) for review and tap maintenance.
 
-## Unsigned release notice
+## Signed releases
 
-DockerSweep is currently distributed without an Apple Developer ID signature or notarization. macOS may show a warning that the developer cannot be verified or that the app may contain malware. This is a Gatekeeper warning caused by the unsigned, unnotarized distribution and is documented here for transparency.
+Releases produced by the notarized release workflow are signed with Developer ID and notarized by Apple. Older releases published before that workflow may still be unsigned; prefer a release produced by the new workflow. Verify the published SHA-256 checksum before installation. Locally built development copies are not notarized and may trigger a Gatekeeper warning.
 
-After attempting to open the app once, approve DockerSweep under **System Settings > Privacy & Security**. If needed, remove quarantine for this app only:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/DockerSweep.app
-```
-
-Do not disable Gatekeeper globally. Download releases only from this repository and verify the published SHA-256 checksum.
+The release workflow requires the repository secrets `MACOS_CERTIFICATE_BASE64`, `MACOS_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`. It fails closed if signing or notarization is unavailable.
 
 ## Usage and safety
 
-DockerSweep's automatic cleanup is disabled during onboarding. When enabled, it runs only after the configured total Docker storage threshold is exceeded and the cleanup cooldown has elapsed.
+DockerSweep's automatic cleanup is disabled during onboarding. Docker-storage cleanup runs only after the configured threshold is exceeded and the cooldown has elapsed. Low-host-space notifications and low-host-space cleanup are configured separately; cleanup remains off by default.
 
 The default cleanup policy is:
 
@@ -66,6 +62,8 @@ The default cleanup policy is:
 - Networks: enabled, seven-day minimum age
 - Anonymous and named volumes: disabled
 - Automatic cleanup: disabled
+- Low-storage alerts: disabled until enabled
+- Low-storage cleanup: disabled until separately enabled
 - Login item: disabled until enabled in Settings
 - Automatic scans: enabled
 
@@ -88,10 +86,10 @@ swift test
 The release script creates:
 
 - `dist/DockerSweep.app`
-- `dist/DockerSweep-<version>-arm64.zip`
-- `dist/DockerSweep-<version>-arm64.zip.sha256`
+- `dist/DockerSweep-<version>-universal.zip` (arm64 and x86_64)
+- `dist/DockerSweep-<version>-universal.zip.sha256`
 
-Set `DEVELOPER_ID_APPLICATION` when a future signed release is built. Without it, the script creates an ad-hoc signed app for local distribution.
+Local packaging creates an ad-hoc signed app. Set `REQUIRE_NOTARIZATION=true` and provide the release workflow's signing and Apple credentials to create a signed and notarized release.
 
 ## Contributing
 

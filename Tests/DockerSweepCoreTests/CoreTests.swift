@@ -127,6 +127,40 @@ final class CoreTests: XCTestCase {
     XCTAssertFalse(settings.cleanupNamedVolumes)
     XCTAssertFalse(settings.automaticCleanupEnabled)
     XCTAssertTrue(settings.selectedResourceTypes.contains(.buildCache))
+    XCTAssertFalse(settings.hostDiskPressureAlertsEnabled)
+    XCTAssertFalse(settings.hostDiskPressureCleanupEnabled)
+    XCTAssertEqual(settings.hostDiskFreeSpaceFloorBytes, 15_000_000_000)
+  }
+
+  func testLegacySettingsDecodeWithSafeHostPressureDefaults() throws {
+    let json = #"{"automaticScanningEnabled":true,"automaticCleanupEnabled":false,"cleanupNamedVolumes":false}"#
+    let settings = try JSONDecoder().decode(AppSettings.self, from: Data(json.utf8))
+    XCTAssertFalse(settings.hostDiskPressureAlertsEnabled)
+    XCTAssertFalse(settings.hostDiskPressureCleanupEnabled)
+    XCTAssertEqual(settings.hostDiskFreeSpaceFloorBytes, 15_000_000_000)
+    XCTAssertFalse(settings.cleanupNamedVolumes)
+    XCTAssertTrue(settings.cleanupBuildCache)
+  }
+
+  func testHostDiskPressurePolicyRequiresExplicitEnablementAndCooldown() {
+    var settings = AppSettings()
+    settings.hostDiskFreeSpaceFloorBytes = 10_000_000_000
+    let low = HostDiskUsage(availableBytes: 9_000_000_000)
+    XCTAssertFalse(CleanupPolicy.shouldAutomaticallyCleanForHostPressure(settings: settings, hostUsage: low, lastCleanup: nil))
+
+    settings.hostDiskPressureCleanupEnabled = true
+    XCTAssertTrue(CleanupPolicy.shouldAutomaticallyCleanForHostPressure(settings: settings, hostUsage: low, lastCleanup: nil))
+    XCTAssertFalse(CleanupPolicy.shouldAutomaticallyCleanForHostPressure(settings: settings, hostUsage: low, lastCleanup: .now.addingTimeInterval(-60)))
+    XCTAssertFalse(CleanupPolicy.shouldAutomaticallyCleanForHostPressure(settings: settings, hostUsage: HostDiskUsage(availableBytes: 10_000_000_000), lastCleanup: nil))
+  }
+
+  func testCleanupCandidateCannotBeSelectedWhenInUseOrProtected() {
+    let safe = CleanupCandidate(id: "image-id", resourceType: .images, name: "unused", estimatedBytes: 1_000)
+    let inUse = CleanupCandidate(id: "container-id", resourceType: .containers, name: "active", isInUse: true)
+    let protected = CleanupCandidate(id: "volume-id", resourceType: .namedVolumes, name: "keep", isProtected: true)
+    XCTAssertTrue(safe.canBeSelected)
+    XCTAssertFalse(inUse.canBeSelected)
+    XCTAssertFalse(protected.canBeSelected)
   }
 
   func testSettingsIgnoreRemovedNotificationSetting() throws {

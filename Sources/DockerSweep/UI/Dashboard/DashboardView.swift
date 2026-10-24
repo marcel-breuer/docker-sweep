@@ -30,6 +30,7 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 12) {
           statusBanner
           storageCard
+          hostStorageCard
           timelineCard
           actionRow
           footerLinks
@@ -118,6 +119,32 @@ struct DashboardView: View {
       MetricCard(title: "Last scan", value: Formatters.relative(state.lastScanAt), detail: "Next: \(Formatters.relative(state.nextScanAt))", symbol: "magnifyingglass", tint: .blue)
       MetricCard(title: "Last cleanup", value: Formatters.bytes(state.lastFreedBytes), detail: Formatters.relative(state.lastCleanup?.finishedAt), symbol: "sparkles", tint: .purple)
     }
+  }
+
+  private var hostStorageCard: some View {
+    VStack(alignment: .leading, spacing: 7) {
+      Label("Mac storage", systemImage: "internaldrive").font(.headline)
+      LabeledContent("Docker context", value: state.dockerContextName.map { "\($0) · \(state.dockerContextIsLocal ? "local" : "remote/unknown")" } ?? "Unavailable")
+      HStack {
+        LabeledContent("Available", value: state.hostDiskUsage.map { Formatters.bytes($0.availableBytes) } ?? "Unavailable")
+        Spacer()
+        if let allocated = state.hostDiskUsage?.dockerImageAllocatedBytes {
+          LabeledContent("Docker image on disk", value: Formatters.bytes(allocated))
+        }
+      }
+      if state.hostDiskUsage?.dockerImageAllocatedBytes == nil {
+        Text("Docker Desktop disk-image allocation is unavailable for the selected runtime.")
+          .font(.caption).foregroundStyle(.secondary)
+      } else if let capacity = state.hostDiskUsage?.dockerImageCapacityBytes {
+        Text("Docker image capacity: \(Formatters.bytes(capacity)); engine use: \(Formatters.bytes(state.diskUsage?.totalSizeBytes ?? 0))")
+          .font(.caption).foregroundStyle(.secondary)
+      }
+      if !state.hostDiskNotificationStatus.isEmpty {
+        Text(state.hostDiskNotificationStatus).font(.caption).foregroundStyle(.secondary)
+      }
+    }
+    .padding(12)
+    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
   }
 
   private var actionRow: some View {

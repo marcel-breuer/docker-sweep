@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import DockerSweepCore
+import UserNotifications
 
 @MainActor
 final class AppState: ObservableObject {
@@ -12,6 +13,11 @@ final class AppState: ObservableObject {
   @Published var settings = AppSettings()
   @Published var availability: DockerAvailability = .notInstalled
   @Published var diskUsage: DockerDiskUsage?
+  @Published var hostDiskUsage: HostDiskUsage?
+  @Published var dockerContextName: String?
+  @Published var dockerContextIsLocal = false
+  @Published var hostDiskNotificationStatus = ""
+  @Published var cleanupCandidates: [CleanupCandidate] = []
   @Published var history: [CleanupRun] = []
   @Published var isScanning = false
   @Published var isCleaning = false
@@ -23,6 +29,7 @@ final class AppState: ObservableObject {
 
   private var hasStarted = false
   private var schedulerTask: Task<Void, Never>?
+  private var wasBelowHostDiskFloor = false
 
   init() {
     dockerClient = DockerCLIClient()
@@ -43,6 +50,7 @@ final class AppState: ObservableObject {
       await dockerClient.setCustomPath(settings.customDockerPath)
       history = await historyStore.load()
       showOnboarding = !settings.onboardingCompleted
+      if settings.hostDiskPressureAlertsEnabled { await requestNotificationPermissionIfNeeded() }
       restartScheduler()
       await scan(allowAutomaticCleanup: false)
     }
@@ -54,6 +62,7 @@ final class AppState: ObservableObject {
     Task {
       await dockerClient.setCustomPath(settings.customDockerPath)
       try? await settingsStore.save(settings)
+      if settings.hostDiskPressureAlertsEnabled { await requestNotificationPermissionIfNeeded() }
     }
   }
 
@@ -63,12 +72,17 @@ final class AppState: ObservableObject {
     lastError = nil
     statusMessage = "Checking Docker…"
     await logger.log("Scan started")
+    hostDiskUsage = DockerHostStorageProbe.measure(includeDockerImage: false)
+    await checkHostDiskPressure(allowCleanup: allowAutomaticCleanup)
     defer {
       isScanning = false
       nextScanAt = CleanupPolicy.nextScanDate(lastScan: lastScanAt, interval: settings.scanInterval)
     }
 
     availability = await dockerClient.checkAvailability()
+    dockerContextName = await dockerClient.activeContextName()
+    dockerContextIsLocal = await dockerClient.activeContextIsLocal()
+    hostDiskUsage = DockerHostStorageProbe.measure(includeDockerImage: dockerContextIsLocal)
     guard availability.isAvailable else {
       statusMessage = availability.title
       await logger.log("Scan stopped: \(availability.title)")
@@ -82,6 +96,8 @@ final class AppState: ObservableObject {
       lastScanAt = .now
       statusMessage = "Scan completed"
       await logger.log("Docker inventory completed in \(Int(inventoryMilliseconds)) ms: \(diskUsage?.totalSizeBytes ?? 0) bytes")
+      isScanning = false
+      await checkHostDiskPressure(allowCleanup: allowAutomaticCleanup)
       if allowAutomaticCleanup, let usage = diskUsage, CleanupPolicy.shouldAutomaticallyClean(settings: settings, usage: usage, lastCleanup: lastCleanup?.finishedAt) {
         isScanning = false
         do {
@@ -110,10 +126,18 @@ final class AppState: ObservableObject {
     return try CleanupPlanner.makePlan(request: request, inventory: diskUsage)
   }
 
-  func cleanup(authorizedPlan: ConfirmedCleanupPlan) async {
+  func loadCleanupCandidates() async {
+    do {
+      cleanupCandidates = try await dockerClient.fetchCleanupCandidates(excludedLabels: settings.excludedLabels)
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func cleanup(authorizedPlan: ConfirmedCleanupPlan, candidates: [CleanupCandidate] = []) async {
     guard !isCleaning && !isScanning else { return }
     let plan = authorizedPlan.plan
-    let resources = plan.resourceTypes
+    let resources = candidates.isEmpty ? plan.resourceTypes : Set(candidates.map(\.resourceType))
     guard !resources.isEmpty else {
       lastError = "Select at least one resource type before cleaning."
       return
@@ -127,12 +151,18 @@ final class AppState: ObservableObject {
     defer { isCleaning = false }
 
     do {
-      let result = try await dockerClient.prune(authorizedPlan)
+      let resourceResults: [CleanupResourceResult]
+      if candidates.isEmpty {
+        resourceResults = try await dockerClient.prune(authorizedPlan).resourceResults
+      } else {
+        resourceResults = await dockerClient.removeCleanupCandidates(candidates, minimumAge: settings.minimumResourceAge, excludedLabels: settings.excludedLabels)
+      }
       let after = try? await dockerClient.fetchDiskUsage()
       if let after { diskUsage = after; lastScanAt = .now }
       let reclaimed = max(0, (before ?? 0) - (after?.totalSizeBytes ?? before ?? 0))
-      let status: CleanupStatus = result.resourceResults.allSatisfy(\.succeeded) ? .succeeded : (result.resourceResults.contains(where: \.succeeded) ? .partiallySucceeded : .failed)
-      let run = CleanupRun(id: UUID(), startedAt: startedAt, finishedAt: .now, trigger: plan.request.trigger, status: status, selectedResources: resources, diskUsageBeforeBytes: before, diskUsageAfterBytes: after?.totalSizeBytes, reclaimedBytes: reclaimed > 0 ? reclaimed : result.reclaimedBytes, resourceResults: result.resourceResults, errorMessage: result.resourceResults.first(where: { !$0.succeeded })?.errorMessage)
+      let status: CleanupStatus = resourceResults.allSatisfy(\.succeeded) ? .succeeded : (resourceResults.contains(where: \.succeeded) ? .partiallySucceeded : .failed)
+      let measuredReclaimed = resourceResults.compactMap(\.reclaimedBytes).reduce(0, +)
+      let run = CleanupRun(id: UUID(), startedAt: startedAt, finishedAt: .now, trigger: plan.request.trigger, status: status, selectedResources: resources, diskUsageBeforeBytes: before, diskUsageAfterBytes: after?.totalSizeBytes, reclaimedBytes: reclaimed > 0 ? reclaimed : measuredReclaimed, resourceResults: resourceResults, errorMessage: resourceResults.first(where: { !$0.succeeded })?.errorMessage)
       try? await historyStore.save(run)
       history = await historyStore.load()
       statusMessage = status == .succeeded ? "Cleanup completed" : "Cleanup completed with errors"
@@ -173,5 +203,63 @@ final class AppState: ObservableObject {
         await self.scan(allowAutomaticCleanup: true)
       }
     }
+  }
+
+  private func checkHostDiskPressure(allowCleanup: Bool) async {
+    guard let usage = hostDiskUsage else { return }
+    let isBelowFloor = usage.availableBytes < settings.hostDiskFreeSpaceFloorBytes
+    if !settings.hostDiskPressureAlertsEnabled { wasBelowHostDiskFloor = false }
+    if settings.hostDiskPressureAlertsEnabled && isBelowFloor && !wasBelowHostDiskFloor {
+      await postHostDiskPressureNotification(availableBytes: usage.availableBytes)
+    }
+    if settings.hostDiskPressureAlertsEnabled { wasBelowHostDiskFloor = isBelowFloor }
+    if isBelowFloor, settings.hostDiskPressureCleanupEnabled, availability.isAvailable, !dockerContextIsLocal {
+      hostDiskNotificationStatus = "Automatic cleanup is disabled because the selected Docker context is not a local Unix socket."
+    }
+    guard allowCleanup, isBelowFloor,
+          CleanupPolicy.shouldAutomaticallyCleanForHostPressure(settings: settings, hostUsage: usage, lastCleanup: lastCleanup?.finishedAt),
+          availability.isAvailable, dockerContextIsLocal, !settings.selectedResourceTypes.isEmpty else { return }
+    do {
+      let plan = try makeCleanupPlan(trigger: .hostDiskPressure)
+      await cleanup(authorizedPlan: plan.authorizeExecution())
+    } catch {
+      lastError = error.localizedDescription
+      statusMessage = "Disk-pressure cleanup could not be prepared"
+    }
+  }
+
+  private func requestNotificationPermissionIfNeeded() async {
+    let center = UNUserNotificationCenter.current()
+    let current = await center.notificationSettings()
+    if current.authorizationStatus == .notDetermined {
+      let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+      hostDiskNotificationStatus = granted ? "Notifications are enabled." : "Notifications are blocked. Allow them in System Settings to receive low-storage alerts."
+    } else if current.authorizationStatus == .denied {
+      hostDiskNotificationStatus = "Notifications are blocked. Allow them in System Settings to receive low-storage alerts."
+    } else {
+      hostDiskNotificationStatus = "Low-storage notifications are enabled."
+    }
+  }
+
+  private func postHostDiskPressureNotification(availableBytes: Int64) async {
+    let center = UNUserNotificationCenter.current()
+    let permission = await center.notificationSettings()
+    if permission.authorizationStatus == .notDetermined {
+      let granted = (try? await center.requestAuthorization(options: [.alert, .sound])) ?? false
+      guard granted else {
+        hostDiskNotificationStatus = "Notifications are blocked. Allow them in System Settings to receive low-storage alerts."
+        return
+      }
+    } else if permission.authorizationStatus == .denied {
+      hostDiskNotificationStatus = "Notifications are blocked. Allow them in System Settings to receive low-storage alerts."
+      return
+    }
+    hostDiskNotificationStatus = "Low-storage notifications are enabled."
+    let content = UNMutableNotificationContent()
+    content.title = "Mac storage is running low"
+    content.body = "\(Formatters.bytes(availableBytes)) remains free. Open DockerSweep to review Docker cleanup options."
+    content.sound = .default
+    let request = UNNotificationRequest(identifier: "host-disk-pressure", content: content, trigger: nil)
+    try? await center.add(request)
   }
 }

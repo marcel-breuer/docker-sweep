@@ -53,6 +53,13 @@ struct SettingsView: View {
         }
         Text("Automatic cleanup only runs after the threshold is exceeded and the cooldown has elapsed.")
           .font(.caption).foregroundStyle(.secondary)
+        Toggle("Alert when Mac storage is low", isOn: $state.settings.hostDiskPressureAlertsEnabled)
+        Stepper(value: $state.settings.hostDiskFreeSpaceFloorBytes, in: 1_000_000_000...500_000_000_000, step: 1_000_000_000) {
+          Text("Low storage floor: \(Formatters.bytes(state.settings.hostDiskFreeSpaceFloorBytes))")
+        }
+        Toggle("Allow automatic cleanup at this floor", isOn: $state.settings.hostDiskPressureCleanupEnabled)
+        Text("Host-space cleanup is off by default and uses the selected resource types, age limit, exclusions, and cooldown. Volumes remain opt-in.")
+          .font(.caption).foregroundStyle(.secondary)
       }
 
       Section("Cleanup resources") {
@@ -83,7 +90,7 @@ struct SettingsView: View {
       }
 
       Section("About") {
-        LabeledContent("Version", value: "0.1.2")
+        LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "Development")
         Link("Project website", destination: URL(string: "https://github.com/marcel-breuer/docker-sweep")!)
         Text("DockerSweep is open-source software under the MIT License.")
           .font(.caption).foregroundStyle(.secondary)
