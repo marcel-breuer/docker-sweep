@@ -20,6 +20,14 @@ public enum CleanupPolicy {
       cooldownElapsed(lastCleanup: lastCleanup, cooldown: settings.cleanupCooldown, now: now)
   }
 
+  public static func shouldAutomaticallyCleanForHostPressure(settings: AppSettings, hostUsage: HostDiskUsage, lastCleanup: Date?, now: Date = .now) -> Bool {
+    settings.automaticScanningEnabled &&
+      settings.hostDiskPressureCleanupEnabled &&
+      !settings.selectedResourceTypes.isEmpty &&
+      hostUsage.availableBytes < settings.hostDiskFreeSpaceFloorBytes &&
+      cooldownElapsed(lastCleanup: lastCleanup, cooldown: settings.cleanupCooldown, now: now)
+  }
+
   public static func dockerUntilFilter(for age: TimeInterval) -> String? {
     guard age.isFinite, age > 0, age <= maximumCleanupAge else { return nil }
     let hours = Int((age / 3600).rounded(.down))

@@ -32,6 +32,41 @@ jobs:
       - name: Show Swift version
         run: swift --version
 
+      - name: Validate notarization credentials
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in MACOS_CERTIFICATE_BASE64 MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required repository secret: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Import Developer ID certificate
+        env:
+          MACOS_CERTIFICATE_BASE64: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/dockersweep-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 32)"
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"
+          printf '%s' "$MACOS_CERTIFICATE_BASE64" | base64 -D > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -k "$KEYCHAIN_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN_PATH" | awk -F '"' '/Developer ID Application/ {print $2; exit}')"
+          if [[ -z "$IDENTITY" ]]; then echo "Developer ID Application identity was not imported" >&2; exit 1; fi
+          echo "DEVELOPER_ID_APPLICATION=$IDENTITY" >> "$GITHUB_ENV"
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
       - name: Resolve release version
         env:
           GH_TOKEN: ${{ github.token }}
@@ -70,18 +105,38 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
 
-      - name: Package ARM64 app
+      - name: Package and notarize universal app
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          REQUIRE_NOTARIZATION: "true"
         run: ./scripts/package-release.sh "$VERSION"
 
       - name: Resolve Homebrew cask checksum
         id: cask
         run: |
-          SHA="$(awk '{print $1}' "dist/DockerSweep-${VERSION}-arm64.zip.sha256")"
+          SHA="$(awk '{print $1}' "dist/DockerSweep-${VERSION}-universal.zip.sha256")"
           if [[ ! "$SHA" =~ ^[0-9a-f]{64}$ ]]; then
             echo "Invalid SHA-256 checksum: $SHA" >&2
             exit 1
           fi
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Update repository Homebrew cask metadata
+        env:
+          VERSION: ${{ env.VERSION }}
+          SHA: ${{ steps.cask.outputs.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/update-cask-metadata.py "$VERSION" "$SHA"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/dockersweep.rb
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(cask): update dockersweep to ${VERSION}"
+            git push origin HEAD:main
+          fi
 
       - name: Create or update GitHub release
         env:
@@ -91,9 +146,13 @@ jobs:
             gh release create "$TAG" --title "$TAG" --generate-notes
           fi
           gh release upload "$TAG" \
-            "dist/DockerSweep-${VERSION}-arm64.zip" \
-            "dist/DockerSweep-${VERSION}-arm64.zip.sha256" \
+            "dist/DockerSweep-${VERSION}-universal.zip" \
+            "dist/DockerSweep-${VERSION}-universal.zip.sha256" \
             --clobber
+
+      - name: Remove signing keychain
+        if: always()
+        run: if [[ -n "${KEYCHAIN_PATH:-}" ]]; then security delete-keychain "$KEYCHAIN_PATH"; fi
 
       - name: Check Homebrew tap configuration
         env:

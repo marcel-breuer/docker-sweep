@@ -35,3 +35,5 @@ Use a focused branch and a Conventional Commit message. Describe the user impact
 ## Releases
 
 Every push to `main` that changes the shipped app or packaging creates the next patch release automatically from the latest semantic version tag. Documentation-only and test-only changes do not publish a release. Use the **Release** workflow's manual dispatch when a minor or major version should be released, entering the full version without the `v` prefix. Pushing a semantic version tag directly remains supported.
+
+Published releases require the repository secrets `MACOS_CERTIFICATE_BASE64`, `MACOS_CERTIFICATE_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`. `MACOS_CERTIFICATE_BASE64` is the base64-encoded Developer ID Application `.p12` certificate. The release workflow imports it into a temporary keychain, signs the universal app, notarizes it with Apple's notary service, staples the ticket, and fails before publishing when credentials are missing or notarization fails. Never commit signing material or credentials.
