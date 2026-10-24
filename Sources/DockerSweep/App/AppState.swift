@@ -1,7 +1,7 @@
 import Foundation
 import SwiftUI
 import DockerSweepCore
-import UserNotifications
+@preconcurrency import UserNotifications
 
 @MainActor
 final class AppState: ObservableObject {
