@@ -61,13 +61,14 @@ public actor DockerCLIClient: DockerClient {
     candidates.append(contentsOf: Self.volumeCandidates(from: volumeResult.standardOutput, excludedLabels: Set(excludedLabels)))
     var createdDates: [String: Date] = [:]
     for type in Set(candidates.map(\.resourceType)) {
+      guard type != .buildCache else { continue }
       let matching = candidates.filter { $0.resourceType == type }
       let subcommand: String = switch type {
       case .containers: "container"
       case .images: "image"
       case .networks: "network"
       case .anonymousVolumes, .namedVolumes: "volume"
-      case .buildCache: continue
+      case .buildCache: "builder"
       }
       let identityField = type.isVolume ? "Name" : "Id"
       let createdField = type.isVolume ? "CreatedAt" : "Created"
@@ -100,6 +101,10 @@ public actor DockerCLIClient: DockerClient {
     var results: [CleanupResourceResult] = []
     for candidate in candidates {
       let started = Date()
+      guard candidate.resourceType != .buildCache else {
+        results.append(CleanupResourceResult(resourceType: candidate.resourceType, startedAt: started, finishedAt: Date(), succeeded: false, exitCode: 1, reclaimedBytes: nil, sanitizedOutput: nil, errorMessage: "Build cache candidates are removed through the category cleanup."))
+        continue
+      }
       guard candidate.canBeSelected,
             let current = freshByID[Self.candidateKey(candidate)],
             current.canBeSelected, minimumAge == 0 || current.createdAt.map({ Date().timeIntervalSince($0) >= minimumAge }) == true else {
@@ -111,7 +116,7 @@ public actor DockerCLIClient: DockerClient {
       case .images: "image"
       case .networks: "network"
       case .anonymousVolumes, .namedVolumes: "volume"
-      case .buildCache: continue
+      case .buildCache: "builder"
       }
       do {
         let process = try await runner.run(executableURL: executable, arguments: [subcommand, "rm", current.id], environment: environment(), timeout: 10 * 60)
