@@ -122,6 +122,7 @@ struct CleanupPreviewView: View {
     }
     .padding(18)
     .frame(width: 420, height: 480)
+    .glassBackdrop()
     .onAppear {
       Task { await state.loadCleanupCandidates() }
       guard let plan else { return }

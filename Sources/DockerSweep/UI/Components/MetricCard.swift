@@ -14,7 +14,7 @@ struct MetricCard: View {
         .font(.title3.weight(.semibold))
         .foregroundStyle(tint)
         .frame(width: 30, height: 30)
-        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: Glass.innerRadius(outer: Glass.panelRadius, padding: 10), style: .continuous))
       VStack(alignment: .leading, spacing: 2) {
         Text(title).font(.caption).foregroundStyle(.secondary)
         Text(value).font(.headline.monospacedDigit())
@@ -23,7 +23,7 @@ struct MetricCard: View {
       Spacer(minLength: 0)
     }
     .padding(10)
-    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+    .glassPanel()
   }
 }
 

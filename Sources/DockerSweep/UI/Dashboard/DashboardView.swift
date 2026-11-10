@@ -19,13 +19,12 @@ struct DashboardView: View {
         dashboardContent
       }
     }
-    .background(.regularMaterial)
+    .glassBackdrop()
   }
 
   private var dashboardContent: some View {
     VStack(spacing: 0) {
       header
-      Divider()
       ScrollView {
         VStack(alignment: .leading, spacing: 12) {
           statusBanner
@@ -44,7 +43,7 @@ struct DashboardView: View {
     HStack(spacing: 10) {
       Image(systemName: "shippingbox.fill")
         .font(.title3.weight(.semibold))
-        .foregroundStyle(.tint)
+        .foregroundStyle(Glass.brand)
         .frame(width: 28, height: 28)
       VStack(alignment: .leading, spacing: 1) {
         Text("DockerSweep").font(.headline.weight(.semibold))
@@ -65,6 +64,7 @@ struct DashboardView: View {
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 10)
+    .glassChrome()
   }
 
   private var statusBanner: some View {
@@ -80,7 +80,7 @@ struct DashboardView: View {
       }
     }
     .padding(12)
-    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+    .glassPanel()
   }
 
   private var storageCard: some View {
@@ -111,7 +111,7 @@ struct DashboardView: View {
       }
     }
     .padding(12)
-    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+    .glassPanel()
   }
 
   private var timelineCard: some View {
@@ -144,7 +144,7 @@ struct DashboardView: View {
       }
     }
     .padding(12)
-    .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
+    .glassPanel()
   }
 
   private var actionRow: some View {
