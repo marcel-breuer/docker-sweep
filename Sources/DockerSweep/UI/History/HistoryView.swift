@@ -33,9 +33,11 @@ struct HistoryView: View {
           .padding(.vertical, 3)
         }
         .listStyle(.inset)
+        .scrollContentBackground(.hidden)
       }
     }
     .padding(14)
     .frame(width: 440, height: 420)
+    .glassBackdrop()
   }
 }

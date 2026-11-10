@@ -97,7 +97,9 @@ struct SettingsView: View {
       }
     }
     .formStyle(.grouped)
+    .scrollContentBackground(.hidden)
     .frame(width: 500, height: 650)
+    .glassBackdrop()
     .alert("Protect Docker volumes", isPresented: $showVolumeWarning) {
       Button("Cancel", role: .cancel) {}
       Button("I understand", role: .destructive) {
